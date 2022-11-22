@@ -7,6 +7,7 @@
 #define MAX_PAY_LEN 0x500
 #define MAX_REP_LEN 0x500
 
+
 struct http{
     char ver[0x10];
     char code_str[0x20];// crlf

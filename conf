@@ -1,16 +1,7 @@
 conf{
     SERVER_NAME : MSH
     VERSION : 1.5.2
-    METHODS{
-        FILTERING_MODE : WHITELIST
-        LIST : GET POST
-    }
-    PATH{
-        FILTERING_MODE : WHITELIST
-        LIST : ./
-    }
-    FILE{
-        FILTERING_MODE : WHITELIST
-        LIST : ./index.html
-    }
+    METHOD_LIST : GET,POST
+    PATH_LIST : ./
+    FILE_LIST : index.html
 }
