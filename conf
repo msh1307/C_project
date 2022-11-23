@@ -1,7 +1,8 @@
 conf{
-    SERVER_NAME : MSH
-    VERSION : 1.5.2
+    SERVER_NAME : UMJUNSIK
+    VERSION : 2.0
     METHOD_LIST : GET,POST
-    PATH_LIST : ./
-    FILE_LIST : index.html
+    BASE_PATH : ./
+    FILE_LIST : index.html,mAcAt.jpg
+    DEFAULT : index.html
 }

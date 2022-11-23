@@ -1,4 +1,7 @@
 #include "serverlib.h"
+
+extern size_t file_sz;
+extern size_t header_sz;
 int port_valid_chk(char ** argv){
     int port = atoi(argv[1]);
     if(port == 0){
@@ -35,12 +38,12 @@ void error_hander(const char * buf){
 // Accept-Encoding: gzip, deflate
 // Accept-Language: ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7
 // Connection: close
-
 char * get_uri(const char * buf){
     int buf_len = strlen(buf);
     char * local_buf = malloc(MAX_URI_LEN+1);
     int flag = 0;
     int idx = 0;
+    
     memset(local_buf,0,MAX_URI_LEN+1);
     for (int i=0; i<buf_len;i++){
         if(!flag && buf[i] == '/'){
@@ -105,7 +108,7 @@ int is_method_allowed(const char* method, char ** allow_list){
     }
     return is_method_allowed;
 }
-char * reply(unsigned int code, char * reply_buf){
+void reply(unsigned int code, char * reply_buf, char * server_name, char * server_version){
     int idx=0;
     char t[0x50];
     time_t timer = time(NULL);
@@ -117,7 +120,7 @@ char * reply(unsigned int code, char * reply_buf){
     switch (code){
         case 200:
             strcpy(HTTP -> code_str, "200 OK\r\n");
-            strcpy(HTTP -> content, reply_buf);
+            ncpy(HTTP -> content, reply_buf,file_sz);
             break;
         case 400:
             strcpy(HTTP -> code_str, "400 Bad Request\r\n");
@@ -147,10 +150,19 @@ char * reply(unsigned int code, char * reply_buf){
     }
     strcpy(HTTP->content_length,"Content-Length: ");
     memset(t,0,0x50);
-    sprintf(t,"%ld",strlen(HTTP -> content));
+    if(code == 200){
+        sprintf(t,"%ld",file_sz);
+    }
+    else{
+        sprintf(t,"%ld",strlen(HTTP -> content));
+    }
     strcat(HTTP->content_length,t);
     strcat(HTTP->content_length,"\r\n");
-    strcpy(HTTP -> ser_name, "Server: msh/1.5.2\r\n");
+    strcpy(HTTP -> ser_name, "Server: ");
+    strcat(HTTP -> ser_name, server_name);
+    strcat(HTTP -> ser_name, "/");
+    strcat(HTTP -> ser_name, server_version);
+    strcat(HTTP -> ser_name, "\r\n");
     strcpy(HTTP -> content_type, "Content-Type: text/html\r\n");
     strcpy(HTTP -> connect,"Connection: Close\r\n\r\n");
 
@@ -162,24 +174,326 @@ char * reply(unsigned int code, char * reply_buf){
     strcat(reply_buf,HTTP->ser_name);
     strcat(reply_buf,HTTP->content_length);
     strcat(reply_buf,HTTP->connect);
+    header_sz = strlen(reply_buf);
     strcat(reply_buf,HTTP->content);
+
     free(HTTP);
 }
 
-char * get_conf(){
-    FILE * f = fopen("./conf","r"); 
+int dif(char * str1, const char * str2){ // cmp except null
+    size_t len = strlen(str2);
+    int flag=0;
+    for(int i=0;i<len;i++){
+        if(str1[i] != str2[i]) 
+            flag = 1;
+    }
+    return flag;
+}
+
+int word_len(char * str){ 
+    int i =0;
+    while(str[i] != '\x0a' && str[i] != '\x20' && str[i] != '\x09'&& str[i] != '\x0d'){
+        if(i > 0x20-1)
+            return -1;
+        i++;
+    }
+    return i;
+}
+int list_len(char * str){ 
+    int i =0;
+    while(str[i] != '\x0a' && str[i] != '\x20' && str[i] != '\x09'&& str[i] != '\x0d'){
+        if(i > 0x60-1)
+            return -1;
+        i++;
+    }
+    return i;
+}
+struct config * parse_conf(char * buf){
+    struct config * conf = malloc(sizeof(struct config));
+    enum last last = NONE;
+    int len = strlen(buf);
+    int cnt,idx;
+    int i =0, delim=0;
+    int on = 0;
+    int wlen = 0;
+    char * method_list = malloc(0xA0);
+    char * file_list = malloc(0x200);
+    memset(conf, 0, sizeof(struct config));
+    memset(method_list, 0, sizeof(method_list));
+    memset(file_list,0,sizeof(file_list));
+    add_ele(method_list);
+    add_ele(file_list);
+    while(i < len){
+        if(buf[i] == '\x20' | buf[i] == '\x0a' | buf[i] == '\x09'| buf[i] == '\x0d'){
+            i++;
+            continue;
+        }
+        switch (last){
+            case NONE:
+                if(buf[i] == 'c'){
+                    if(!dif(buf + i,"conf")){
+                        last = CONF_ST;
+                        i += 4;
+                        continue;
+                    }  
+                }
+                i++;
+                break;
+            case CONF_ST:
+                if(buf[i] == 'S'){
+                    if(!dif(buf + i,"SERVER_NAME")){
+                        last = SER_NAME;
+                        i += 11;
+                        continue;
+                    }  
+                }
+                else if(buf[i] == 'V'){
+                    if(!dif(buf + i,"VERSION")){
+                        last = VER;
+                        i += 7;
+                        continue;
+                    }  
+                }
+                else if(buf[i] == 'M'){
+                    if(!dif(buf + i,"METHOD_LIST")){
+                        last = METH_LIST;
+                        i += 11;
+                        continue;
+                    }  
+                }
+                else if(buf[i] == 'B'){
+                    if(!dif(buf + i,"BASE_PATH")){
+                        last = BASE_PATH;
+                        i += 9;
+                        continue;
+                    }  
+                }
+                else if(buf[i] == 'F'){
+                    if(!dif(buf + i,"FILE_LIST")){
+                        last = FILE_LIST;
+                        i += 9;
+                        continue;
+                    }  
+                }
+                else if(buf[i] == 'D'){
+                    if(!dif(buf + i,"DEFAULT")){
+                        last = DEFAULT_;
+                        i += 7;
+                        continue;
+                    }  
+                }
+                i++;
+                break;
+            case SER_NAME:
+                if(delim){
+                    wlen = word_len(buf+i);
+                    if(wlen == -1)
+                        error_hander("conf error : SERVER_NAME / Maximum length is 31");
+                    strncpy(conf -> server_name,buf+i, wlen);
+                    conf -> server_name[wlen] = '\x00';
+                    last = CONF_ST;
+                    delim = 0;
+                    i += wlen;
+                    wlen = 0;
+                    continue;
+                }
+                else{
+                    if(buf[i] == ':'){
+                        delim = 1;
+                    }
+                }
+                i++;
+                break;
+            case VER:
+                if(delim){
+                    wlen = word_len(buf+i);
+                    if(wlen == -1)
+                        error_hander("conf error : VERSION / Maximum length is 31");
+                    strncpy(conf -> version,buf+i, wlen);
+                    conf -> version[wlen] = '\x00';
+                    last = CONF_ST;
+                    delim = 0;
+                    i += wlen;
+                    wlen = 0;
+                    continue;
+                }
+                else{
+                    if(buf[i] == ':'){
+                        delim = 1;
+                    }
+                }
+                i++;
+                break;
+            case METH_LIST:
+                if(delim){
+                    wlen = list_len(buf+i);
+                    if(wlen == -1)
+                        error_hander("conf error : METHOD_LIST / Maximum length is 95");
+                    cnt = 0;
+                    idx = 0;
+                    memset(method_list,0,sizeof(method_list));
+                    on = 0;
+                    for (int j =0;j<wlen;j++){
+                        if(buf[i+j] == '\x20' | buf[i+j] == '\x0a' | buf[i+j] == '\x09'| buf[i+j] == '\x0d')
+                            continue;
+                        if(cnt > 15)
+                            error_hander("conf error : METHOD_LIST / Maximum method count is 9");
+                        if(buf[i+j] == ','){
+                            if(!is_method_valid(method_list + cnt*0x10))
+                                error_hander("conf error : METHOD_LIST / invalid method");
+                            conf -> method_list[cnt] = method_list + cnt*0x10;
+                            method_list[cnt*0x10 + idx] = '\x00';
+                            cnt++;
+                            idx = 0;
+                        }
+                        else{
+                            method_list[cnt*0x10 + idx++] = buf[i+j];
+                            on = 1;
+                        }
+                    }
+                    if(!on)
+                        error_hander("conf error : METHOD_LIST / empty list");
+
+                    conf -> method_list[cnt] = method_list + cnt*0x10;
+                    if(!is_method_valid(method_list + cnt*0x10))
+                        error_hander("conf error : METHOD_LIST / invalid method");
+                    conf -> method_list[cnt+1] = NULL;
+                    last = CONF_ST;
+                    delim = 0;
+                    i += wlen;
+                    wlen = 0;
+                    continue;
+                }
+                else{
+                    if(buf[i] == ':'){
+                        delim = 1;
+                    }
+                }
+                i++;
+                break;
+            case BASE_PATH:
+                if(delim){
+                    wlen = word_len(buf+i);
+                    if(wlen == -1)
+                        error_hander("conf error : BASE_PATH / Maximum length is 31");
+                    strncpy(conf -> base_path,buf+i, wlen);
+                    conf -> base_path[wlen] = '\x00';
+                    last = CONF_ST;
+                    delim = 0;
+                    i += wlen;
+                    wlen = 0;
+                    continue;
+                }
+                else{
+                    if(buf[i] == ':'){
+                        delim = 1;
+                    }
+                }
+                i++;
+                break;
+            case FILE_LIST:
+                if(delim){
+                    wlen = list_len(buf+i);
+                    if(wlen == -1)
+                        error_hander("conf error : FILE_LIST / Maximum length is 95");
+                    cnt = 0;
+                    idx = 0;
+                    on = 0;
+                    memset(file_list,0,sizeof(file_list));
+                    for (int j =0;j<wlen;j++){
+                        if(buf[i+j] == '\x20' | buf[i+j] == '\x0a' | buf[i+j] == '\x09'| buf[i+j] == '\x0d')
+                            continue;
+                        if(cnt > 16)
+                            error_hander("conf error : FILE_LIST / Maximum file count is 16");
+                        if(buf[i+j] == ','){
+                            conf -> file_list[cnt] = file_list + cnt*0x20;
+                            file_list[cnt*0x20 + idx] = '\x00';
+                            cnt++;
+                            idx = 0;
+                        }
+                        else{
+                            file_list[cnt*0x20 + idx++] = buf[i+j];
+                            on = 1;
+                        }
+                    }
+                    if(!on)
+                        error_hander("conf error : FILE_LIST / empty file list");
+                    conf -> file_list[cnt] = file_list + cnt*0x20;
+                    conf -> file_list[cnt+1] = NULL;
+                    last = CONF_ST;
+                    delim = 0;
+                    i += wlen;
+                    wlen = 0;
+                    continue;
+                }
+                else{
+                    if(buf[i] == ':'){
+                        delim = 1;
+                    }
+                }
+                i++;
+                break;
+            case DEFAULT_:
+                if(delim){
+                    wlen = word_len(buf+i);
+                    if(wlen == -1)
+                        error_hander("conf error : DEFAULT / Maximum length is 31");
+                    strncpy(conf -> default_,buf+i, wlen);
+                    conf -> default_[wlen] = '\x00';
+                    last = CONF_ST;
+                    delim = 0;
+                    i += wlen;
+                    wlen = 0;
+                    continue;
+                }
+                else{
+                    if(buf[i] == ':'){
+                        delim = 1;
+                    }
+                }
+                i++;
+                break;
+            default : 
+                last = CONF_ST;
+                continue;
+        }
+    }
+    return conf;
+}
+char * get_file(char * filename){
+    FILE * f = fopen(filename,"r"); 
     char c;
-    int len = 0,idx = 0;  
+    int len = 0,idx = 0; 
     char * buf = NULL;
+    if(f == NULL) 
+        return NULL;
     fseek(f,0,SEEK_END);
     len = ftell(f);
     fseek(f,0,SEEK_SET);
     buf = malloc(len);
     if(!buf)
         error_hander("allocation failed");
-    
     while ((c = fgetc(f)) && !feof(f)) 
         buf[idx++] = c;
     fclose(f);
+    file_sz = idx;
     return buf;
+}
+int perm_chk(char * p, char * file_list[]){
+    int idx=0;
+    int flag = 0;
+    while(file_list[idx]){
+        if(!strcmp(p,file_list[idx])){
+            flag = 1;
+        }
+        printf("%s == %s %d\n",p,file_list[idx],flag);
+        idx++;
+    }
+
+    return flag;
+}
+int ncpy(char * dest, char * src, size_t cnt){
+    for(int i =0;i<cnt;i++){
+        dest[i] = src[i];
+    }
 }

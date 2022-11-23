@@ -6,23 +6,42 @@
 #include <signal.h>
 #include "serverlib.h"
 
-#define add_ele(ele) mem_list[j++] = ele;
 #define send_reply(fd, buf) write(fd, buf,strlen(buf));
 
-void clnt_main(int fd);
+void clnt_main(int fd,struct config * conf);
 
+void * mem_list[0x20];
+int j;
+size_t file_sz;
+size_t header_sz;
 int main(int argc,char ** argv){
     int serv_sock, cl_sock;
     int clnt;
     struct sockaddr_in serv_addr;
     struct sockaddr_in cl_addr;
+    struct config * conf = NULL;
     socklen_t cl_addrlen;
+    char * config = NULL;
     if(argc == 2){
         if(port_valid_chk(argv) == -1)
             error_hander("invalid port number (0<= port <= 65535)");
     }
     else
         error_hander("usage : ./server [port]");
+
+    config = get_file("./conf");
+    if(config == NULL)
+        error_hander("there is no file named conf");
+    conf = parse_conf(config);
+    if(!conf -> server_name || strlen(conf -> server_name) == 0)
+        error_hander("conf error : SERVER_NAME / empty server name");
+    if(!conf -> version || strlen(conf -> version) == 0)
+        error_hander("conf error : VERSION / empty server version");
+    if(!conf -> base_path || strlen(conf -> base_path) == 0)
+        error_hander("conf error : BASE_PATH / empty base path");
+    if(!conf -> default_ || strlen(conf -> default_) == 0)
+        error_hander("conf error : DEFAULT / empty default");
+    add_ele(conf);
     serv_sock = socket(AF_INET,SOCK_STREAM,0);
     if(serv_sock == -1)
         error_hander("socket() error");
@@ -57,7 +76,7 @@ int main(int argc,char ** argv){
         clnt = fork();
         if(!clnt){
             close(serv_sock);
-            clnt_main(cl_sock);
+            clnt_main(cl_sock,conf);
             close(cl_sock);
             exit(0);
         }
@@ -67,15 +86,16 @@ int main(int argc,char ** argv){
     }
 }
 
-void clnt_main(int fd){
-    int i=0,j=0;
+void clnt_main(int fd,struct config * conf){
+    int i=0;
+    char local_name[0x20];
+    char local_uri[0x20];
     unsigned int len=0;
-    char * allowed_req_methods[] = {"GET","POST",NULL}; //config req_list
     char * uri= NULL;
     char *req_buf = malloc(MAX_PAY_LEN);
     char * method = NULL;
-    void * mem_list[10] = {0};
     char * reply_buf = malloc(MAX_REP_LEN);
+    char * file_content = NULL;
     if(!req_buf)
         error_hander("allocation failed");
     add_ele(req_buf);
@@ -86,53 +106,102 @@ void clnt_main(int fd){
     printf("connected fd: %d\n",fd);
     len = read(fd,req_buf,MAX_PAY_LEN);
     if(len > MAX_PAY_LEN){ 
-        reply(413, reply_buf);
+        reply(413, reply_buf,conf -> server_name,conf -> version);
         puts("413 Payload Too Large");
         goto ABORT;
     }
 
     method = get_method(req_buf);
     if(!method){ 
-        reply(400, reply_buf);
+        reply(400, reply_buf,conf -> server_name,conf -> version);
         puts("400 Bad Request");
         goto ABORT;
     }
-    add_ele(method); // DFB avoid
+    add_ele(method);
     if(is_method_valid(method)){
-        if(!is_method_allowed(method,allowed_req_methods)){ 
-            reply(405, reply_buf);
+        if(!is_method_allowed(method,conf -> method_list)){ 
+            reply(405, reply_buf,conf -> server_name,conf -> version);
+            write(fd, reply_buf, MAX_REP_LEN);
             puts("405 Method Not Allowed");
             goto ABORT;
         }
     }
     else{ 
-        reply(400, reply_buf);
+        reply(400, reply_buf,conf -> server_name,conf -> version);
+        write(fd, reply_buf, MAX_REP_LEN);
         puts("400 Bad Request");
         goto ABORT;
     } 
     uri = get_uri(req_buf);
     if(!uri){
-        reply(400, reply_buf);
+        reply(400, reply_buf,conf -> server_name,conf -> version);
+        write(fd, reply_buf, MAX_REP_LEN);
         puts("400 Bad Request");
         goto ABORT;
     }
-    add_ele(uri); // DFB avoid
+    add_ele(uri); 
     if(strlen(uri) > MAX_URI_LEN){
-        reply(414, reply_buf);
+        reply(414, reply_buf,conf -> server_name,conf -> version);
+        write(fd, reply_buf, MAX_REP_LEN);
         puts("414 URI Too Long");
         goto ABORT;
     }
     
-
+    if(!strcmp(uri, "/")){
+        file_content = get_file(conf -> default_);
+        if(file_content == NULL){
+            reply(404, reply_buf, conf -> server_name, conf -> version);
+            puts("404 Not Found");
+            write(fd, reply_buf, MAX_REP_LEN);
+            goto ABORT;
+        }
+        add_ele(file_content);
+        ncpy(reply_buf, file_content,file_sz);
+        reply(200, reply_buf, conf -> server_name, conf -> version);
+        if(file_sz+header_sz > MAX_REP_LEN)
+                error_hander("reply buf overflow");
+        puts("200 OK");
+        write(fd, reply_buf, file_sz+header_sz);
+    }
+    else{
+        i=0;
+        memset(local_uri, 0, sizeof(local_uri));
+        memset(local_name, 0, sizeof(local_name));
+        while(uri[i]=='/')
+            i++;
+        strcpy(local_name,uri+i);
+        strcpy(local_uri,conf -> base_path);
+        strcat(local_uri,uri+i);
+        if(perm_chk(local_name, conf -> file_list)){
+            file_content = get_file(local_uri);
+            if(file_content == NULL){
+                reply(404, reply_buf, conf -> server_name, conf -> version);
+                puts("404 Not Found");
+                write(fd, reply_buf, MAX_REP_LEN);
+                goto ABORT;
+            }
+            add_ele(file_content);
+            ncpy(reply_buf, file_content,file_sz);
+            reply(200, reply_buf, conf -> server_name, conf -> version);
+            puts("200 OK");
+            if(file_sz+header_sz > MAX_REP_LEN)
+                error_hander("reply buf overflow");
+            write(fd, reply_buf, file_sz+header_sz);
+        }
+        else{
+            reply(403, reply_buf, conf -> server_name, conf -> version);
+            puts("403 Forbidden");
+            write(fd, reply_buf, file_sz+header_sz);
+        }
+    }
 
     ABORT:
     close(fd);
     printf("closed fd: %d\n",fd);
     for (int i=0;mem_list[i];i++){
-        if(i > 9)
+        if(i > 0x20)
             break;
         free(mem_list[i]);
     }
-
 
 }
