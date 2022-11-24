@@ -1,6 +1,6 @@
 #include "serverlib.h"
 
-extern size_t file_sz;
+extern unsigned long long file_sz;
 extern size_t header_sz;
 int port_valid_chk(char ** argv){
     int port = atoi(argv[1]);
@@ -108,7 +108,7 @@ int is_method_allowed(const char* method, char ** allow_list){
     }
     return is_method_allowed;
 }
-void reply(unsigned int code, char * reply_buf, char * server_name, char * server_version){
+void reply(unsigned int code, char * reply_buf, char * server_name, char * server_version,char * content_type){
     int idx=0;
     char t[0x50];
     time_t timer = time(NULL);
@@ -151,7 +151,7 @@ void reply(unsigned int code, char * reply_buf, char * server_name, char * serve
     strcpy(HTTP->content_length,"Content-Length: ");
     memset(t,0,0x50);
     if(code == 200){
-        sprintf(t,"%ld",file_sz);
+        sprintf(t,"%llu",file_sz);
     }
     else{
         sprintf(t,"%ld",strlen(HTTP -> content));
@@ -163,7 +163,9 @@ void reply(unsigned int code, char * reply_buf, char * server_name, char * serve
     strcat(HTTP -> ser_name, "/");
     strcat(HTTP -> ser_name, server_version);
     strcat(HTTP -> ser_name, "\r\n");
-    strcpy(HTTP -> content_type, "Content-Type: text/html\r\n");
+    strcpy(HTTP -> content_type, "Content-Type: ");
+    strcat(HTTP -> content_type,content_type);
+    strcat(HTTP -> content_type,"\r\n");
     strcpy(HTTP -> connect,"Connection: Close\r\n\r\n");
 
     memset(reply_buf,0,MAX_REP_LEN);
@@ -353,7 +355,7 @@ struct config * parse_conf(char * buf){
                     }
                     if(!on)
                         error_hander("conf error : METHOD_LIST / empty list");
-
+                    method_list[cnt*0x10 + idx] = '\x00';
                     conf -> method_list[cnt] = method_list + cnt*0x10;
                     if(!is_method_valid(method_list + cnt*0x10))
                         error_hander("conf error : METHOD_LIST / invalid method");
@@ -418,6 +420,7 @@ struct config * parse_conf(char * buf){
                     }
                     if(!on)
                         error_hander("conf error : FILE_LIST / empty file list");
+                    file_list[cnt*0x20 + idx] = '\x00';
                     conf -> file_list[cnt] = file_list + cnt*0x20;
                     conf -> file_list[cnt+1] = NULL;
                     last = CONF_ST;
@@ -460,10 +463,12 @@ struct config * parse_conf(char * buf){
     }
     return conf;
 }
+
 char * get_file(char * filename){
     FILE * f = fopen(filename,"r"); 
     char c;
-    int len = 0,idx = 0; 
+    int len = 0;
+    unsigned long long int idx = 0; 
     char * buf = NULL;
     if(f == NULL) 
         return NULL;
@@ -473,10 +478,13 @@ char * get_file(char * filename){
     buf = malloc(len);
     if(!buf)
         error_hander("allocation failed");
-    while ((c = fgetc(f)) && !feof(f)) 
+    while (!feof(f)) {
+        c = fgetc(f);
         buf[idx++] = c;
+    }
+        
     fclose(f);
-    file_sz = idx;
+    file_sz = idx-1;
     return buf;
 }
 int perm_chk(char * p, char * file_list[]){
@@ -492,8 +500,16 @@ int perm_chk(char * p, char * file_list[]){
 
     return flag;
 }
-int ncpy(char * dest, char * src, size_t cnt){
+int ncpy(char * dest, char * src, unsigned long long int cnt){
     for(int i =0;i<cnt;i++){
         dest[i] = src[i];
+    }
+}
+char * get_file_extension(char * buf){
+    int len= strlen(buf);
+    for(int i = len-1; i>=0; i--){
+        if(buf[i] =='.'){
+            return buf+i;
+        }
     }
 }

@@ -12,7 +12,7 @@ void clnt_main(int fd,struct config * conf);
 
 void * mem_list[0x20];
 int j;
-size_t file_sz;
+unsigned long long file_sz;
 size_t header_sz;
 int main(int argc,char ** argv){
     int serv_sock, cl_sock;
@@ -106,42 +106,42 @@ void clnt_main(int fd,struct config * conf){
     printf("connected fd: %d\n",fd);
     len = read(fd,req_buf,MAX_PAY_LEN);
     if(len > MAX_PAY_LEN){ 
-        reply(413, reply_buf,conf -> server_name,conf -> version);
+        reply(413, reply_buf,conf -> server_name,conf -> version,"text/html");
         puts("413 Payload Too Large");
         goto ABORT;
     }
 
     method = get_method(req_buf);
     if(!method){ 
-        reply(400, reply_buf,conf -> server_name,conf -> version);
+        reply(400, reply_buf,conf -> server_name,conf -> version,"text/html");
         puts("400 Bad Request");
         goto ABORT;
     }
     add_ele(method);
     if(is_method_valid(method)){
         if(!is_method_allowed(method,conf -> method_list)){ 
-            reply(405, reply_buf,conf -> server_name,conf -> version);
+            reply(405, reply_buf,conf -> server_name,conf -> version,"text/html");
             write(fd, reply_buf, MAX_REP_LEN);
             puts("405 Method Not Allowed");
             goto ABORT;
         }
     }
     else{ 
-        reply(400, reply_buf,conf -> server_name,conf -> version);
+        reply(400, reply_buf,conf -> server_name,conf -> version,"text/html");
         write(fd, reply_buf, MAX_REP_LEN);
         puts("400 Bad Request");
         goto ABORT;
     } 
     uri = get_uri(req_buf);
     if(!uri){
-        reply(400, reply_buf,conf -> server_name,conf -> version);
+        reply(400, reply_buf,conf -> server_name,conf -> version,"text/html");
         write(fd, reply_buf, MAX_REP_LEN);
         puts("400 Bad Request");
         goto ABORT;
     }
     add_ele(uri); 
     if(strlen(uri) > MAX_URI_LEN){
-        reply(414, reply_buf,conf -> server_name,conf -> version);
+        reply(414, reply_buf,conf -> server_name,conf -> version,"text/html");
         write(fd, reply_buf, MAX_REP_LEN);
         puts("414 URI Too Long");
         goto ABORT;
@@ -150,16 +150,16 @@ void clnt_main(int fd,struct config * conf){
     if(!strcmp(uri, "/")){
         file_content = get_file(conf -> default_);
         if(file_content == NULL){
-            reply(404, reply_buf, conf -> server_name, conf -> version);
+            reply(404, reply_buf, conf -> server_name, conf -> version,"text/html");
             puts("404 Not Found");
             write(fd, reply_buf, MAX_REP_LEN);
             goto ABORT;
         }
         add_ele(file_content);
         ncpy(reply_buf, file_content,file_sz);
-        reply(200, reply_buf, conf -> server_name, conf -> version);
+        reply(200, reply_buf, conf -> server_name, conf -> version,"text/html");
         if(file_sz+header_sz > MAX_REP_LEN)
-                error_hander("reply buf overflow");
+            error_hander("reply buf overflow");
         puts("200 OK");
         write(fd, reply_buf, file_sz+header_sz);
     }
@@ -172,24 +172,38 @@ void clnt_main(int fd,struct config * conf){
         strcpy(local_name,uri+i);
         strcpy(local_uri,conf -> base_path);
         strcat(local_uri,uri+i);
+        puts("permchk");
         if(perm_chk(local_name, conf -> file_list)){
+            puts("permchk passsed");
             file_content = get_file(local_uri);
+            puts("read");
             if(file_content == NULL){
-                reply(404, reply_buf, conf -> server_name, conf -> version);
+                reply(404, reply_buf, conf -> server_name, conf -> version,"text/html");
                 puts("404 Not Found");
                 write(fd, reply_buf, MAX_REP_LEN);
                 goto ABORT;
             }
             add_ele(file_content);
             ncpy(reply_buf, file_content,file_sz);
-            reply(200, reply_buf, conf -> server_name, conf -> version);
-            puts("200 OK");
+            for(int j =0;j<0x100;j++){
+                printf("%c",reply_buf[j]);
+            }
+            if(strcmp(get_file_extension(local_uri),".html"))
+                reply(200, reply_buf, conf -> server_name, conf -> version,"text/html");
+            else if(strcmp(get_file_extension(local_uri),".jpg"))
+                reply(200, reply_buf, conf -> server_name, conf -> version,"image/jpeg");
+            else{
+                error_hander("unsupported file extentsion");
+            }
             if(file_sz+header_sz > MAX_REP_LEN)
                 error_hander("reply buf overflow");
+            write(1, reply_buf, file_sz+header_sz);
+            printf("%llu",file_sz);
+            puts("");
             write(fd, reply_buf, file_sz+header_sz);
         }
         else{
-            reply(403, reply_buf, conf -> server_name, conf -> version);
+            reply(403, reply_buf, conf -> server_name, conf -> version,"text/html");
             puts("403 Forbidden");
             write(fd, reply_buf, file_sz+header_sz);
         }
