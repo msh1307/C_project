@@ -172,11 +172,8 @@ void clnt_main(int fd,struct config * conf){
         strcpy(local_name,uri+i);
         strcpy(local_uri,conf -> base_path);
         strcat(local_uri,uri+i);
-        puts("permchk");
         if(perm_chk(local_name, conf -> file_list)){
-            puts("permchk passsed");
             file_content = get_file(local_uri);
-            puts("read");
             if(file_content == NULL){
                 reply(404, reply_buf, conf -> server_name, conf -> version,"text/html");
                 puts("404 Not Found");
@@ -185,21 +182,17 @@ void clnt_main(int fd,struct config * conf){
             }
             add_ele(file_content);
             ncpy(reply_buf, file_content,file_sz);
-            for(int j =0;j<0x100;j++){
-                printf("%c",reply_buf[j]);
-            }
             if(strcmp(get_file_extension(local_uri),".html"))
                 reply(200, reply_buf, conf -> server_name, conf -> version,"text/html");
-            else if(strcmp(get_file_extension(local_uri),".jpg"))
+            else if(strcmp(get_file_extension(local_uri),".jpg")){
                 reply(200, reply_buf, conf -> server_name, conf -> version,"image/jpeg");
+            }
             else{
                 error_hander("unsupported file extentsion");
             }
             if(file_sz+header_sz > MAX_REP_LEN)
                 error_hander("reply buf overflow");
-            write(1, reply_buf, file_sz+header_sz);
-            printf("%llu",file_sz);
-            puts("");
+            puts("200 OK");
             write(fd, reply_buf, file_sz+header_sz);
         }
         else{

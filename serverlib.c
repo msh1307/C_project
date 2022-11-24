@@ -2,6 +2,7 @@
 
 extern unsigned long long file_sz;
 extern size_t header_sz;
+
 int port_valid_chk(char ** argv){
     int port = atoi(argv[1]);
     if(port == 0){
@@ -111,40 +112,45 @@ int is_method_allowed(const char* method, char ** allow_list){
 void reply(unsigned int code, char * reply_buf, char * server_name, char * server_version,char * content_type){
     int idx=0;
     char t[0x50];
+    char * content = NULL;
     time_t timer = time(NULL);
     struct tm * tp = gmtime(&timer);
     strftime(t, 0x50, "%a, %d %b %Y %H:%M:%S GMT\r\n",tp);
     struct http * HTTP = (struct http *)malloc(sizeof(struct http));
+    if(code == 200)
+        content = malloc(file_sz);
+    else
+        content = malloc(0x50);
     strcpy(HTTP -> ver, "HTTP/1.1 ");
     strcpy(HTTP -> date, t);
     switch (code){
         case 200:
             strcpy(HTTP -> code_str, "200 OK\r\n");
-            ncpy(HTTP -> content, reply_buf,file_sz);
+            ncpy(content, reply_buf,file_sz);
             break;
         case 400:
             strcpy(HTTP -> code_str, "400 Bad Request\r\n");
-            strcpy(HTTP -> content, "<h1>400 Bad Request</h1>");
+            strcpy(content, "<h1>400 Bad Request</h1>");
             break;
         case 403:
             strcpy(HTTP -> code_str, "403 Forbidden\r\n");
-            strcpy(HTTP -> content, "<h1>403 Forbidden</h1>");
+            strcpy(content, "<h1>403 Forbidden</h1>");
             break;
         case 404:
             strcpy(HTTP -> code_str, "404 Not Found\r\n");
-            strcpy(HTTP -> content, "<h1>404 Not Found</h1>");
+            strcpy(content, "<h1>404 Not Found</h1>");
             break;
         case 405:
             strcpy(HTTP -> code_str, "405 Method Not Allowed\r\n");
-            strcpy(HTTP -> content, "<h1>405 Method Not Allowed</h1>");
+            strcpy(content, "<h1>405 Method Not Allowed</h1>");
             break;
         case 413:
             strcpy(HTTP -> code_str, "413 Payload Too Large\r\n");
-            strcpy(HTTP -> content, "<h1>413 Payload Too Large</h1>");
+            strcpy(content, "<h1>413 Payload Too Large</h1>");
             break;
         case 414:
             strcpy(HTTP -> code_str, "414 URI Too Long\r\n");
-            strcpy(HTTP -> content, "<h1>414 URI Too Long</h1>");
+            strcpy(content, "<h1>414 URI Too Long</h1>");
             break;
         
     }
@@ -154,7 +160,7 @@ void reply(unsigned int code, char * reply_buf, char * server_name, char * serve
         sprintf(t,"%llu",file_sz);
     }
     else{
-        sprintf(t,"%ld",strlen(HTTP -> content));
+        sprintf(t,"%ld",strlen(content));
     }
     strcat(HTTP->content_length,t);
     strcat(HTTP->content_length,"\r\n");
@@ -177,9 +183,10 @@ void reply(unsigned int code, char * reply_buf, char * server_name, char * serve
     strcat(reply_buf,HTTP->content_length);
     strcat(reply_buf,HTTP->connect);
     header_sz = strlen(reply_buf);
-    strcat(reply_buf,HTTP->content);
+    ncpy(reply_buf+strlen(reply_buf),content,file_sz);
 
-    free(HTTP);
+    free(content);
+    free(HTTP); 
 }
 
 int dif(char * str1, const char * str2){ // cmp except null
@@ -475,6 +482,8 @@ char * get_file(char * filename){
     fseek(f,0,SEEK_END);
     len = ftell(f);
     fseek(f,0,SEEK_SET);
+    if(len > 0x200000)
+        error_hander("length error");
     buf = malloc(len);
     if(!buf)
         error_hander("allocation failed");

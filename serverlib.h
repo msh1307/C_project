@@ -5,7 +5,7 @@
 #include <time.h>
 #define MAX_URI_LEN 0x50-1
 #define MAX_PAY_LEN 0x500
-#define MAX_REP_LEN 0x600
+#define MAX_REP_LEN 0x200000+0xe0
 #define add_ele(ele) mem_list[j++] = ele
 
 struct http{
@@ -16,7 +16,6 @@ struct http{
     char ser_name[0x20]; // crlf
     char content_length[0x20]; // crlf
     char connect[0x20]; // crlf*2
-    char content[0x500];
 };
 struct config {
     char server_name[0x20];
